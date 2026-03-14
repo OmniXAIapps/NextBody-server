@@ -16,25 +16,22 @@ const openai = new OpenAI({
 
 const memory = {};
 
-
 // ======================
 // TEST SERVEUR
 // ======================
-
 app.get("/", (req, res) => {
   res.send("NextBody server OK 🚀");
 });
 
-
+app.get("/ping", (req, res) => {
+  res.send("awake");
+});
 
 // ======================
 // COACH IA
 // ======================
-
 app.post("/ai/coach", async (req, res) => {
-
   try {
-
     const { message, profile, userId } = req.body;
 
     if (!message) {
@@ -51,7 +48,6 @@ app.post("/ai/coach", async (req, res) => {
 Tu es le coach fitness officiel de l'application NextBody.
 
 Ton rôle :
-
 - coach musculation
 - coach nutrition
 - coach motivation
@@ -63,15 +59,15 @@ Tes réponses doivent être :
 - utiles
 - motivantes
 - concrètes
+- pas trop longues
 
 Profil utilisateur :
-
-sexe: ${profile?.gender ?? "inconnu"}
-age: ${profile?.age ?? "inconnu"}
-taille: ${profile?.height_cm ?? "inconnu"} cm
-poids: ${profile?.weight_kg ?? "inconnu"} kg
-niveau: ${profile?.level ?? "inconnu"}
-lieu entrainement: ${profile?.place ?? "inconnu"}
+- sexe : ${profile?.gender ?? "inconnu"}
+- âge : ${profile?.age ?? "inconnu"}
+- taille : ${profile?.height_cm ?? "inconnu"} cm
+- poids : ${profile?.weight_kg ?? "inconnu"} kg
+- niveau : ${profile?.level ?? "inconnu"}
+- lieu d'entraînement : ${profile?.place ?? "inconnu"}
 `;
 
     memory[uid].push({
@@ -82,23 +78,19 @@ lieu entrainement: ${profile?.place ?? "inconnu"}
     const history = memory[uid].slice(-10);
 
     const completion = await openai.chat.completions.create({
-
       model: "gpt-4o-mini",
-
       messages: [
         {
           role: "system",
           content: systemPrompt,
         },
-        ...history
+        ...history,
       ],
-
       temperature: 0.7,
       max_tokens: 300,
-
     });
 
-    const reply = completion.choices[0].message.content;
+    const reply = completion.choices?.[0]?.message?.content?.trim() || "Je n'ai pas pu répondre pour le moment.";
 
     memory[uid].push({
       role: "assistant",
@@ -106,81 +98,87 @@ lieu entrainement: ${profile?.place ?? "inconnu"}
     });
 
     res.json({ reply });
-
   } catch (error) {
-
-    console.error(error);
-
-    res.status(500).json({
-      error: "Erreur coach IA"
-    });
-
+    console.error("Erreur coach IA :", error);
+    res.status(500).json({ error: "Erreur coach IA" });
   }
-
 });
-
-
 
 // ======================
 // ANALYSE PHOTO IA
 // ======================
-
 app.post("/ai/photo-analysis", async (req, res) => {
-
   try {
-
     const { imageBase64 } = req.body;
 
     if (!imageBase64) {
-      return res.status(400).json({
-        error: "Image manquante"
-      });
+      return res.status(400).json({ error: "Image manquante" });
     }
 
     const completion = await openai.chat.completions.create({
-
       model: "gpt-4o-mini",
-
       messages: [
-
         {
           role: "system",
           content: `
 Tu es un coach fitness expert en analyse physique.
 
-Analyse le physique visible sur la photo.
+Tu analyses le physique visible sur une photo.
 
-Réponds uniquement en JSON.
+RÈGLES IMPORTANTES :
+- Réponds uniquement en FRANÇAIS.
+- Réponds uniquement en JSON valide.
+- Ne mets aucun texte avant ou après le JSON.
+- Sois réaliste.
+- Si la photo ne montre pas une zone, reste prudent.
+- Les scores doivent être cohérents avec le physique observé.
 
-Structure obligatoire :
+BARÈME DES SCORES :
+- 90 à 100 = physique élite / bodybuilder
+- 75 à 89 = physique très athlétique
+- 60 à 74 = bon physique
+- 45 à 59 = physique moyen
+- 30 à 44 = débutant
+- 0 à 29 = mauvaise condition physique
+
+Tu dois retourner exactement cette structure :
 
 {
- "body_fat": "",
- "body_type": "",
- "physique_level": "",
- "score": {
-   "global": 0,
-   "musculature": 0,
-   "definition": 0,
-   "posture": 0,
-   "symmetry": 0
- },
- "strength_zones": [],
- "weak_zones": [],
- "strengths": [],
- "weaknesses": [],
- "posture": "",
- "six_month_projection": {
-   "weight_estimate": "",
-   "body_fat_estimate": "",
-   "physique": ""
- }
+  "body_fat": "",
+  "body_type": "",
+  "physique_level": "",
+  "score": {
+    "global": 0,
+    "musculature": 0,
+    "definition": 0,
+    "posture": 0,
+    "symmetry": 0
+  },
+  "strength_zones": [],
+  "weak_zones": [],
+  "strengths": [],
+  "weaknesses": [],
+  "posture": "",
+  "six_month_projection": {
+    "weight_estimate": "",
+    "body_fat_estimate": "",
+    "physique": ""
+  }
 }
 
-Tout doit être en FRANÇAIS.
+Consignes :
+- body_fat = estimation visuelle en pourcentage, ex: "10-12%"
+- body_type = ectomorphe / mésomorphe / endomorphe / mixte
+- physique_level = débutant / intermédiaire / bon physique / athlétique / très athlétique
+- score.global = cohérent avec tout le reste
+- strength_zones = 2 à 4 zones fortes
+- weak_zones = 1 à 3 zones à améliorer
+- strengths = 2 à 4 points forts
+- weaknesses = 2 à 4 axes d'amélioration
+- posture = courte analyse de posture
+- six_month_projection = projection réaliste si entraînement sérieux + nutrition adaptée
 `
         },
-
         {
           role: "user",
           content: [
@@ -196,49 +194,52 @@ Tout doit être en FRANÇAIS.
             }
           ]
         }
-
       ],
-
-      max_tokens: 800
-
+      max_tokens: 900,
+      temperature: 0.4,
     });
 
-    const raw = completion.choices[0].message.content.trim();
+    const raw = completion.choices?.[0]?.message?.content?.trim() || "";
 
     let parsed;
-
     try {
-
       parsed = JSON.parse(raw);
-
-    } catch {
-
-      console.log("JSON IA invalide:", raw);
-
-      return res.status(500).json({
-        error: "JSON invalide"
-      });
-
+    } catch (e) {
+      console.log("JSON IA invalide :", raw);
+      return res.status(500).json({ error: "JSON invalide" });
     }
 
+    // Sécurité minimale si un champ manque
+    parsed.body_fat = parsed.body_fat || "12-15%";
+    parsed.body_type = parsed.body_type || "mixte";
+    parsed.physique_level = parsed.physique_level || "intermédiaire";
+    parsed.score = parsed.score || {};
+    parsed.score.global = Number.isInteger(parsed.score.global) ? parsed.score.global : 60;
+    parsed.score.musculature = Number.isInteger(parsed.score.musculature) ? parsed.score.musculature : 60;
+    parsed.score.definition = Number.isInteger(parsed.score.definition) ? parsed.score.definition : 60;
+    parsed.score.posture = Number.isInteger(parsed.score.posture) ? parsed.score.posture : 60;
+    parsed.score.symmetry = Number.isInteger(parsed.score.symmetry) ? parsed.score.symmetry : 60;
+    parsed.strength_zones = Array.isArray(parsed.strength_zones) ? parsed.strength_zones : ["épaules"];
+    parsed.weak_zones = Array.isArray(parsed.weak_zones) ? parsed.weak_zones : ["jambes"];
+    parsed.strengths = Array.isArray(parsed.strengths) ? parsed.strengths : ["bonne définition"];
+    parsed.weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses : ["masse musculaire à développer"];
+    parsed.posture = parsed.posture || "Posture globalement correcte.";
+    parsed.six_month_projection = parsed.six_month_projection || {};
+    parsed.six_month_projection.weight_estimate =
+      parsed.six_month_projection.weight_estimate || "+2 à +4 kg";
+    parsed.six_month_projection.body_fat_estimate =
+      parsed.six_month_projection.body_fat_estimate || "9-11%";
+    parsed.six_month_projection.physique =
+      parsed.six_month_projection.physique ||
+      "Physique plus athlétique avec davantage de masse musculaire visible.";
+
     res.json(parsed);
-
   } catch (error) {
-
-    console.error(error);
-
-    res.status(500).json({
-      error: "Erreur analyse IA"
-    });
-
+    console.error("Erreur analyse IA :", error);
+    res.status(500).json({ error: "Erreur analyse IA" });
   }
-
 });
 
-
-
 app.listen(PORT, () => {
-
   console.log(`🚀 NextBody server lancé sur le port ${PORT}`);
-
 });
