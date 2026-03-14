@@ -123,18 +123,25 @@ app.post("/ai/photo-analysis", async (req, res) => {
         {
           role: "system",
           content: `
-Tu es un coach fitness professionnel spécialisé dans l'analyse physique.
+Tu es un coach fitness expert et analyste morphologique.
 
-Tu analyses le corps visible sur une photo.
+Tu analyses précisément un physique humain à partir d'une photo.
 
-Tu dois être précis, réaliste, prudent et objectif.
+Tu dois évaluer :
+1. le niveau de sèche
+2. la morphologie générale
+3. les proportions esthétiques
+4. le développement musculaire
+5. le potentiel génétique visible
+6. la projection physique réaliste à 6 mois
 
 IMPORTANT :
-- Réponds uniquement en FRANÇAIS.
-- Réponds uniquement en JSON valide.
-- Ne mets aucun texte avant ou après le JSON.
-- Si une zone n'est pas visible, indique une estimation prudente.
-- Les scores doivent être cohérents avec le physique observé.
+- Réponds uniquement en FRANÇAIS
+- Réponds uniquement en JSON valide
+- Ne mets aucun texte avant ou après le JSON
+- Sois réaliste, prudent et cohérent
+- Si une zone n'est pas visible, dis-le de manière prudente
+- Les scores doivent correspondre au physique observé
 
 BARÈME :
 90-100 = physique élite
@@ -151,6 +158,20 @@ Structure obligatoire :
   "body_type": "",
   "physique_level": "",
   "aesthetic_score": 0,
+
+  "morphology": {
+    "clavicle_width": "",
+    "waist_structure": "",
+    "bone_structure": "",
+    "muscle_insertions": ""
+  },
+
+  "ratios": {
+    "shoulder_to_waist_ratio": "",
+    "v_taper_score": 0,
+    "upper_lower_balance": ""
+  },
+
   "score": {
     "global": 0,
     "musculature": 0,
@@ -158,8 +179,10 @@ Structure obligatoire :
     "posture": 0,
     "symmetry": 0
   },
+
   "muscle_analysis": {
     "shoulders": "",
+    "upper_chest": "",
     "chest": "",
     "arms": "",
     "abs": "",
@@ -167,12 +190,19 @@ Structure obligatoire :
     "back": "",
     "legs": ""
   },
+
+  "genetics": {
+    "genetic_potential": "",
+    "muscle_gain_potential": "",
+    "aesthetic_potential": ""
+  },
+
   "strength_zones": [],
   "weak_zones": [],
   "strengths": [],
   "weaknesses": [],
   "posture": "",
-  "genetic_potential": "",
+
   "six_month_projection": {
     "weight_estimate": "",
     "body_fat_estimate": "",
@@ -186,12 +216,23 @@ Consignes :
 - body_type = ectomorphe / mésomorphe / endomorphe / mixte
 - physique_level = débutant / intermédiaire / bon physique / athlétique / très athlétique
 - aesthetic_score = score esthétique sur 100
+- morphology.clavicle_width = étroites / moyennes / larges
+- morphology.waist_structure = étroite / moyenne / large
+- morphology.bone_structure = fine / moyenne / robuste
+- morphology.muscle_insertions = défavorables / moyennes / bonnes / très bonnes
+- ratios.shoulder_to_waist_ratio = faible / moyen / bon / excellent
+- ratios.v_taper_score = score sur 100
+- ratios.upper_lower_balance = haut du corps dominant / équilibré / bas du corps dominant / difficile à juger
+- genetics.genetic_potential = faible / moyen / bon / élevé
+- genetics.muscle_gain_potential = faible / moyen / bon / élevé
+- genetics.aesthetic_potential = faible / moyen / bon / élevé
 - strength_zones = 2 à 4 zones fortes
-- weak_zones = 1 à 3 zones à améliorer
+- weak_zones = 1 à 4 zones à améliorer
 - strengths = 2 à 4 points forts
 - weaknesses = 2 à 4 axes d'amélioration
-- genetic_potential = faible / moyen / bon / élevé
 - six_month_projection.changes = liste de changements probables
+
+Le JSON doit toujours être complet.
 `
         },
         {
@@ -199,7 +240,7 @@ Consignes :
           content: [
             {
               type: "text",
-              text: "Analyse ce physique de manière réaliste."
+              text: "Analyse ce physique de manière réaliste et détaillée."
             },
             {
               type: "image_url",
@@ -210,8 +251,8 @@ Consignes :
           ]
         }
       ],
-      max_tokens: 1200,
-      temperature: 0.4,
+      max_tokens: 1400,
+      temperature: 0.35,
     });
 
     const raw = completion.choices?.[0]?.message?.content?.trim() || "";
@@ -232,6 +273,25 @@ Consignes :
       ? parsed.aesthetic_score
       : 60;
 
+    parsed.morphology = parsed.morphology || {};
+    parsed.morphology.clavicle_width =
+      parsed.morphology.clavicle_width || "moyennes";
+    parsed.morphology.waist_structure =
+      parsed.morphology.waist_structure || "moyenne";
+    parsed.morphology.bone_structure =
+      parsed.morphology.bone_structure || "moyenne";
+    parsed.morphology.muscle_insertions =
+      parsed.morphology.muscle_insertions || "moyennes";
+
+    parsed.ratios = parsed.ratios || {};
+    parsed.ratios.shoulder_to_waist_ratio =
+      parsed.ratios.shoulder_to_waist_ratio || "bon";
+    parsed.ratios.v_taper_score = Number.isInteger(parsed.ratios.v_taper_score)
+      ? parsed.ratios.v_taper_score
+      : 60;
+    parsed.ratios.upper_lower_balance =
+      parsed.ratios.upper_lower_balance || "difficile à juger";
+
     parsed.score = parsed.score || {};
     parsed.score.global = Number.isInteger(parsed.score.global) ? parsed.score.global : 60;
     parsed.score.musculature = Number.isInteger(parsed.score.musculature) ? parsed.score.musculature : 60;
@@ -242,6 +302,8 @@ Consignes :
     parsed.muscle_analysis = parsed.muscle_analysis || {};
     parsed.muscle_analysis.shoulders =
       parsed.muscle_analysis.shoulders || "Bonne base, largeur à développer.";
+    parsed.muscle_analysis.upper_chest =
+      parsed.muscle_analysis.upper_chest || "Partie haute peu visible ou à développer.";
     parsed.muscle_analysis.chest =
       parsed.muscle_analysis.chest || "Pectoraux corrects, marge de progression.";
     parsed.muscle_analysis.arms =
@@ -253,11 +315,19 @@ Consignes :
     parsed.muscle_analysis.back =
       parsed.muscle_analysis.back || "Zone difficile à juger de face, estimation prudente.";
     parsed.muscle_analysis.legs =
-      parsed.muscle_analysis.legs || "Jambes non visibles, estimation prudente.";
+      parsed.muscle_analysis.legs || "Jambes non visibles ou difficilement visibles, estimation prudente.";
+
+    parsed.genetics = parsed.genetics || {};
+    parsed.genetics.genetic_potential =
+      parsed.genetics.genetic_potential || "moyen";
+    parsed.genetics.muscle_gain_potential =
+      parsed.genetics.muscle_gain_potential || "bon";
+    parsed.genetics.aesthetic_potential =
+      parsed.genetics.aesthetic_potential || "bon";
 
     parsed.strength_zones = Array.isArray(parsed.strength_zones)
       ? parsed.strength_zones
-      : ["épaules", "abdominaux"];
+      : ["abdominaux", "taille"];
     parsed.weak_zones = Array.isArray(parsed.weak_zones)
       ? parsed.weak_zones
       : ["bras"];
@@ -268,7 +338,6 @@ Consignes :
       ? parsed.weaknesses
       : ["masse musculaire à développer"];
     parsed.posture = parsed.posture || "Posture globalement correcte.";
-    parsed.genetic_potential = parsed.genetic_potential || "bon";
 
     parsed.six_month_projection = parsed.six_month_projection || {};
     parsed.six_month_projection.weight_estimate =
