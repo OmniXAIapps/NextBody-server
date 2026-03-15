@@ -1,15 +1,11 @@
 const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
-const fs = require("fs");
-const os = require("os");
-const path = require("path");
 require("dotenv").config();
 
 const app = express();
-
 app.use(cors());
-app.use(express.json({ limit: "20mb" }));
+app.use(express.json({ limit: "15mb" }));
 
 const PORT = process.env.PORT || 3000;
 
@@ -39,20 +35,33 @@ app.post("/ai/coach", async (req, res) => {
     }
 
     const uid = userId || "default";
-    if (!memory[uid]) memory[uid] = [];
+
+    if (!memory[uid]) {
+      memory[uid] = [];
+    }
 
     const systemPrompt = `
 Tu es le coach fitness officiel de l'application NextBody.
+
 Tu réponds uniquement en FRANÇAIS.
-Réponses claires, utiles, motivantes et concrètes.
+Tu es :
+- coach musculation
+- coach nutrition
+- coach motivation
 
 Profil utilisateur :
-- sexe : ${profile?.gender ?? "inconnu"}
-- âge : ${profile?.age ?? "inconnu"}
-- taille : ${profile?.height_cm ?? "inconnu"} cm
-- poids : ${profile?.weight_kg ?? "inconnu"} kg
-- niveau : ${profile?.level ?? "inconnu"}
-- lieu d'entraînement : ${profile?.place ?? "inconnu"}
+sexe : ${profile?.gender ?? "inconnu"}
+âge : ${profile?.age ?? "inconnu"}
+taille : ${profile?.height_cm ?? "inconnu"} cm
+poids : ${profile?.weight_kg ?? "inconnu"} kg
+niveau : ${profile?.level ?? "inconnu"}
+lieu : ${profile?.place ?? "inconnu"}
+
+Tes réponses doivent être :
+- claires
+- motivantes
+- concrètes
+- utiles
 `;
 
     memory[uid].push({
@@ -69,12 +78,10 @@ Profil utilisateur :
         ...history,
       ],
       temperature: 0.7,
-      max_tokens: 300,
+      max_tokens: 350,
     });
 
-    const reply =
-      completion.choices?.[0]?.message?.content?.trim() ||
-      "Je n'ai pas pu répondre pour le moment.";
+    const reply = completion.choices[0].message.content || "";
 
     memory[uid].push({
       role: "assistant",
@@ -84,15 +91,12 @@ Profil utilisateur :
     res.json({ reply });
   } catch (e) {
     console.error("coach error", e);
-    res.status(500).json({
-      error: "coach error",
-      details: e?.message || "Erreur coach IA",
-    });
+    res.status(500).json({ error: "Erreur coach IA" });
   }
 });
 
 // ======================
-// ANALYSE PHOTO AVANCÉE
+// ANALYSE PHOTO IA
 // ======================
 app.post("/ai/photo-analysis", async (req, res) => {
   try {
@@ -108,31 +112,17 @@ app.post("/ai/photo-analysis", async (req, res) => {
         {
           role: "system",
           content: `
-Tu es un coach fitness expert et analyste morphologique.
+Tu es un coach fitness expert.
+Analyse un physique humain visible sur une photo.
 
-Réponds uniquement en JSON valide, en FRANÇAIS, sans texte autour.
+Réponds uniquement en JSON valide, sans texte autour.
 
-Structure obligatoire :
-
+Structure :
 {
   "body_fat": "",
   "body_type": "",
   "physique_level": "",
   "aesthetic_score": 0,
-
-  "morphology": {
-    "clavicle_width": "",
-    "waist_structure": "",
-    "bone_structure": "",
-    "muscle_insertions": ""
-  },
-
-  "ratios": {
-    "shoulder_to_waist_ratio": "",
-    "v_taper_score": 0,
-    "upper_lower_balance": ""
-  },
-
   "score": {
     "global": 0,
     "musculature": 0,
@@ -140,54 +130,223 @@ Structure obligatoire :
     "posture": 0,
     "symmetry": 0
   },
-
-  "muscle_analysis": {
-    "shoulders": "",
-    "upper_chest": "",
-    "chest": "",
-    "arms": "",
-    "abs": "",
-    "waist": "",
-    "back": "",
-    "legs": ""
-  },
-
-  "genetics": {
-    "genetic_potential": "",
-    "muscle_gain_potential": "",
-    "aesthetic_potential": ""
-  },
-
   "strength_zones": [],
   "weak_zones": [],
   "strengths": [],
   "weaknesses": [],
   "posture": "",
-
   "six_month_projection": {
     "weight_estimate": "",
     "body_fat_estimate": "",
-    "physique": "",
-    "changes": []
+    "physique": ""
   }
 }
 
-Consignes :
-- body_fat = estimation réaliste, ex: "8-10%"
-- body_type = ectomorphe / mésomorphe / endomorphe / mixte
-- physique_level = débutant / intermédiaire / bon physique / athlétique / très athlétique
-- aesthetic_score = score sur 100
-- clavicle_width = étroites / moyennes / larges
-- waist_structure = étroite / moyenne / large
-- bone_structure = fine / moyenne / robuste
-- muscle_insertions = défavorables / moyennes / bonnes / très bonnes
-- shoulder_to_waist_ratio = faible / moyen / bon / excellent
-- v_taper_score = score sur 100
-- upper_lower_balance = haut du corps dominant / équilibré / bas du corps dominant / difficile à juger
-- genetic_potential = faible / moyen / bon / élevé
-- muscle_gain_potential = faible / moyen / bon / élevé
-- aesthetic_potential = faible / moyen / bon / élevé
-- si une zone n'est pas visible, reste prudent
+Réponds en FRANÇAIS.
+`
+        },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Analyse ce physique." },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/jpeg;base64,${imageBase64}`,
+              },
+            },
+          ],
+        },
+      ],
+      max_tokens: 900,
+      temperature: 0.4,
+    });
+
+    const raw = completion.choices[0].message.content?.trim() || "";
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (err) {
+      console.log("JSON photo invalide:", raw);
+      return res.status(500).json({ error: "JSON invalide" });
+    }
+
+    res.json(parsed);
+  } catch (e) {
+    console.error("photo analysis error", e);
+    res.status(500).json({ error: "Erreur analyse IA" });
+  }
+});
+
+// ======================
+// TRANSFORMATION 6 MOIS
+// ======================
+app.post("/ai/transform", async (req, res) => {
+  try {
+    const { imageBase64 } = req.body;
+
+    if (!imageBase64) {
+      return res.status(400).json({ error: "Image manquante" });
+    }
+
+    const prompt = `
+Transform this fitness photo into the same person after 6 months of training.
+
+Rules:
+- same face
+- same person
+- same pose
+- realistic result
+- natural physique evolution
+- slightly more muscular
+- chest a bit fuller
+- shoulders slightly wider
+- arms a bit bigger
+- keep proportions realistic
+`;
+
+    const result = await openai.images.generate({
+      model: "gpt-image-1",
+      prompt,
+      size: "1024x1024",
+    });
+
+    const image = result.data?.[0]?.b64_json;
+
+    if (!image) {
+      return res.status(500).json({ error: "transform error" });
+    }
+
+    res.json({ transformedImage: image });
+  } catch (e) {
+    console.error("transform error", e);
+    res.status(500).json({ error: "transform error" });
+  }
+});
+
+// ======================
+// SCAN REPAS IA COMPLET
+// ======================
+app.post("/ai/meal-scan", async (req, res) => {
+  try {
+    const { imageBase64, langCode } = req.body;
+
+    if (!imageBase64) {
+      return res.status(400).json({ error: "Image manquante" });
+    }
+
+    const isFr = langCode === "fr";
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: isFr
+            ? `
+Tu es un nutritionniste sportif expert.
+
+Analyse le repas visible sur l'image.
+Tu dois estimer le plus proprement possible :
+- les aliments détectés
+- les calories
+- les macronutriments
+- les micronutriments importants
+
+Réponds uniquement en JSON valide, sans texte autour.
+
+Structure obligatoire :
+{
+  "meal_name": "",
+  "summary": "",
+  "calories": 0,
+  "protein": 0,
+  "carbs": 0,
+  "fat": 0,
+  "nutrients": {
+    "fiber_g": 0,
+    "sugar_g": 0,
+    "sodium_mg": 0,
+    "cholesterol_mg": 0,
+    "omega3_g": 0,
+    "saturated_fat_g": 0,
+    "magnesium_mg": 0,
+    "vitamin_d_mcg": 0,
+    "vitamin_c_mg": 0,
+    "vitamin_a_mcg": 0,
+    "iron_mg": 0,
+    "water_ml": 0,
+    "caffeine_mg": 0,
+    "alcohol_g": 0
+  },
+  "foods": [],
+  "positives": [],
+  "cautions": [],
+  "advice": ""
+}
+
+Règles :
+- réponse en FRANÇAIS
+- estimation réaliste
+- si l'image n'est pas parfaitement claire, reste prudent
+- foods = liste des aliments détectés
+- positives = bons points nutritionnels
+- cautions = points à surveiller
+- advice = conseil simple et utile
+- tous les nombres doivent être numériques
+`
+            : `
+You are an expert sports nutritionist.
+
+Analyze the meal visible in the image.
+Estimate:
+- detected foods
+- calories
+- macronutrients
+- key micronutrients
+
+Reply only with valid JSON, no extra text.
+
+Required structure:
+{
+  "meal_name": "",
+  "summary": "",
+  "calories": 0,
+  "protein": 0,
+  "carbs": 0,
+  "fat": 0,
+  "nutrients": {
+    "fiber_g": 0,
+    "sugar_g": 0,
+    "sodium_mg": 0,
+    "cholesterol_mg": 0,
+    "omega3_g": 0,
+    "saturated_fat_g": 0,
+    "magnesium_mg": 0,
+    "vitamin_d_mcg": 0,
+    "vitamin_c_mg": 0,
+    "vitamin_a_mcg": 0,
+    "iron_mg": 0,
+    "water_ml": 0,
+    "caffeine_mg": 0,
+    "alcohol_g": 0
+  },
+  "foods": [],
+  "positives": [],
+  "cautions": [],
+  "advice": ""
+}
+
+Rules:
+- answer in ENGLISH
+- realistic estimate
+- if image is unclear, stay cautious
+- foods = detected foods
+- positives = nutrition positives
+- cautions = things to watch
+- advice = simple useful advice
+- all numeric values must be numbers
 `
         },
         {
@@ -195,7 +354,7 @@ Consignes :
           content: [
             {
               type: "text",
-              text: "Analyse ce physique de manière réaliste et détaillée."
+              text: isFr ? "Analyse ce repas." : "Analyze this meal."
             },
             {
               type: "image_url",
@@ -206,8 +365,8 @@ Consignes :
           ]
         }
       ],
-      max_tokens: 1400,
-      temperature: 0.35,
+      max_tokens: 1200,
+      temperature: 0.3,
     });
 
     const raw = completion.choices?.[0]?.message?.content?.trim() || "";
@@ -216,133 +375,82 @@ Consignes :
     try {
       parsed = JSON.parse(raw);
     } catch (err) {
-      console.log("JSON IA invalide:", raw);
+      console.log("JSON meal scan invalide:", raw);
       return res.status(500).json({
-        error: "analysis error",
+        error: "meal scan error",
         details: "JSON invalide renvoyé par l'IA",
       });
     }
 
-    parsed.body_fat = parsed.body_fat || "12-15%";
-    parsed.body_type = parsed.body_type || "mixte";
-    parsed.physique_level = parsed.physique_level || "intermédiaire";
-    parsed.aesthetic_score = Number.isInteger(parsed.aesthetic_score) ? parsed.aesthetic_score : 60;
+    parsed.meal_name =
+      parsed.meal_name || (isFr ? "Repas détecté" : "Detected meal");
+    parsed.summary =
+      parsed.summary ||
+      (isFr
+        ? "Estimation nutritionnelle du repas."
+        : "Estimated meal nutrition.");
 
-    parsed.morphology = parsed.morphology || {};
-    parsed.morphology.clavicle_width = parsed.morphology.clavicle_width || "moyennes";
-    parsed.morphology.waist_structure = parsed.morphology.waist_structure || "moyenne";
-    parsed.morphology.bone_structure = parsed.morphology.bone_structure || "moyenne";
-    parsed.morphology.muscle_insertions = parsed.morphology.muscle_insertions || "moyennes";
+    parsed.calories = Number.isFinite(parsed.calories)
+      ? Math.round(parsed.calories)
+      : 0;
+    parsed.protein = Number.isFinite(parsed.protein)
+      ? Math.round(parsed.protein)
+      : 0;
+    parsed.carbs = Number.isFinite(parsed.carbs)
+      ? Math.round(parsed.carbs)
+      : 0;
+    parsed.fat = Number.isFinite(parsed.fat)
+      ? Math.round(parsed.fat)
+      : 0;
 
-    parsed.ratios = parsed.ratios || {};
-    parsed.ratios.shoulder_to_waist_ratio = parsed.ratios.shoulder_to_waist_ratio || "bon";
-    parsed.ratios.v_taper_score = Number.isInteger(parsed.ratios.v_taper_score) ? parsed.ratios.v_taper_score : 60;
-    parsed.ratios.upper_lower_balance = parsed.ratios.upper_lower_balance || "difficile à juger";
+    parsed.foods = Array.isArray(parsed.foods) ? parsed.foods : [];
+    parsed.positives = Array.isArray(parsed.positives) ? parsed.positives : [];
+    parsed.cautions = Array.isArray(parsed.cautions) ? parsed.cautions : [];
+    parsed.advice =
+      parsed.advice ||
+      (isFr
+        ? "Ajoute une source de protéines si besoin."
+        : "Add a protein source if needed.");
 
-    parsed.score = parsed.score || {};
-    parsed.score.global = Number.isInteger(parsed.score.global) ? parsed.score.global : 60;
-    parsed.score.musculature = Number.isInteger(parsed.score.musculature) ? parsed.score.musculature : 60;
-    parsed.score.definition = Number.isInteger(parsed.score.definition) ? parsed.score.definition : 60;
-    parsed.score.posture = Number.isInteger(parsed.score.posture) ? parsed.score.posture : 60;
-    parsed.score.symmetry = Number.isInteger(parsed.score.symmetry) ? parsed.score.symmetry : 60;
+    if (!parsed.nutrients || typeof parsed.nutrients !== "object") {
+      parsed.nutrients = {};
+    }
 
-    parsed.muscle_analysis = parsed.muscle_analysis || {};
-    parsed.muscle_analysis.shoulders = parsed.muscle_analysis.shoulders || "Bonne base, largeur à développer.";
-    parsed.muscle_analysis.upper_chest = parsed.muscle_analysis.upper_chest || "Partie haute à développer.";
-    parsed.muscle_analysis.chest = parsed.muscle_analysis.chest || "Pectoraux corrects, marge de progression.";
-    parsed.muscle_analysis.arms = parsed.muscle_analysis.arms || "Bras à développer en volume.";
-    parsed.muscle_analysis.abs = parsed.muscle_analysis.abs || "Abdominaux visibles, bon niveau de définition.";
-    parsed.muscle_analysis.waist = parsed.muscle_analysis.waist || "Taille fine, bon point esthétique.";
-    parsed.muscle_analysis.back = parsed.muscle_analysis.back || "Difficile à juger de face.";
-    parsed.muscle_analysis.legs = parsed.muscle_analysis.legs || "Jambes peu visibles, estimation prudente.";
+    const nutrients = {
+      fiber_g: 0,
+      sugar_g: 0,
+      sodium_mg: 0,
+      cholesterol_mg: 0,
+      omega3_g: 0,
+      saturated_fat_g: 0,
+      magnesium_mg: 0,
+      vitamin_d_mcg: 0,
+      vitamin_c_mg: 0,
+      vitamin_a_mcg: 0,
+      iron_mg: 0,
+      water_ml: 0,
+      caffeine_mg: 0,
+      alcohol_g: 0,
+      ...parsed.nutrients,
+    };
 
-    parsed.genetics = parsed.genetics || {};
-    parsed.genetics.genetic_potential = parsed.genetics.genetic_potential || "moyen";
-    parsed.genetics.muscle_gain_potential = parsed.genetics.muscle_gain_potential || "bon";
-    parsed.genetics.aesthetic_potential = parsed.genetics.aesthetic_potential || "bon";
+    for (const key of Object.keys(nutrients)) {
+      const value = Number(nutrients[key]);
+      nutrients[key] = Number.isFinite(value) ? value : 0;
+    }
 
-    parsed.strength_zones = Array.isArray(parsed.strength_zones) ? parsed.strength_zones : ["abdominaux", "taille"];
-    parsed.weak_zones = Array.isArray(parsed.weak_zones) ? parsed.weak_zones : ["bras"];
-    parsed.strengths = Array.isArray(parsed.strengths) ? parsed.strengths : ["bonne définition musculaire"];
-    parsed.weaknesses = Array.isArray(parsed.weaknesses) ? parsed.weaknesses : ["masse musculaire à développer"];
-    parsed.posture = parsed.posture || "Posture globalement correcte.";
-
-    parsed.six_month_projection = parsed.six_month_projection || {};
-    parsed.six_month_projection.weight_estimate = parsed.six_month_projection.weight_estimate || "+2 à +4 kg";
-    parsed.six_month_projection.body_fat_estimate = parsed.six_month_projection.body_fat_estimate || "8-10%";
-    parsed.six_month_projection.physique =
-      parsed.six_month_projection.physique ||
-      "Physique plus athlétique avec davantage de masse musculaire visible.";
-    parsed.six_month_projection.changes = Array.isArray(parsed.six_month_projection.changes)
-      ? parsed.six_month_projection.changes
-      : ["épaules plus larges", "bras plus pleins", "physique plus dense"];
+    parsed.nutrients = nutrients;
 
     res.json(parsed);
   } catch (e) {
-    console.error("analysis error", e);
+    console.error("meal scan error", e);
     res.status(500).json({
-      error: "analysis error",
-      details: e?.message || "Erreur analyse IA",
+      error: "meal scan error",
+      details: e?.message || "Erreur scan repas IA",
     });
-  }
-});
-
-// ======================
-// TRANSFORMATION 6 MOIS
-// ======================
-app.post("/ai/transform", async (req, res) => {
-  let inputPath = null;
-
-  try {
-    const { imageBase64, langCode } = req.body;
-
-    if (!imageBase64) {
-      return res.status(400).json({ error: "Image manquante" });
-    }
-
-    const buffer = Buffer.from(imageBase64, "base64");
-    inputPath = path.join(os.tmpdir(), `nextbody_${Date.now()}.png`);
-    fs.writeFileSync(inputPath, buffer);
-
-    const prompt =
-      langCode === "en"
-        ? `Edit this fitness photo into a realistic 6-month transformation of the SAME man. Keep the same face, same person, same pose, same framing, same lighting, same photo style. Make him naturally more muscular: slightly wider shoulders, fuller chest, bigger arms, denser upper body, still lean, still realistic, not extreme.`
-        : `Transforme cette photo en une version réaliste du MÊME homme après 6 mois de musculation sérieuse. Garde le même visage, la même personne, la même pose, le même cadrage, la même lumière et le même style photo. Rends le physique naturellement plus musclé : épaules un peu plus larges, pectoraux plus pleins, bras plus volumineux, haut du corps plus dense, tout en restant sec, naturel et réaliste, sans rendu extrême.`;
-
-    const result = await openai.images.edit({
-      model: "gpt-image-1",
-      image: fs.createReadStream(inputPath),
-      prompt,
-      size: "1024x1024",
-    });
-
-    const image = result?.data?.[0]?.b64_json;
-
-    if (!image) {
-      return res.status(500).json({
-        error: "transform error",
-        details: "Aucune image transformée renvoyée",
-      });
-    }
-
-    res.json({
-      transformedImage: image,
-    });
-  } catch (e) {
-    console.error("transform error", e);
-    res.status(500).json({
-      error: "transform error",
-      details: e?.message || "Erreur transformation IA",
-    });
-  } finally {
-    try {
-      if (inputPath && fs.existsSync(inputPath)) {
-        fs.unlinkSync(inputPath);
-      }
-    } catch (_) {}
   }
 });
 
 app.listen(PORT, () => {
-  console.log("🚀 NextBody server running on", PORT);
+  console.log(`🚀 NextBody server running on ${PORT}`);
 });
