@@ -61,6 +61,22 @@ function toNumber(v, fallback = 0) {
   return fallback;
 }
 
+function cleanText(v, fallback = "") {
+  if (v === null || v === undefined) return fallback;
+  const text = String(v).trim();
+  if (!text || text === "null" || text === "undefined" || text === "unknown") {
+    return fallback;
+  }
+  return text;
+}
+
+function cleanList(v) {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((e) => cleanText(e, ""))
+    .filter(Boolean);
+}
+
 function normalizeMealScan(data, langCode = "fr") {
   const isFr = langCode === "fr";
 
@@ -100,16 +116,16 @@ function normalizeMealScan(data, langCode = "fr") {
   if (!data || typeof data !== "object") return fallback;
 
   return {
-    meal_name: data.meal_name || fallback.meal_name,
-    summary: data.summary || fallback.summary,
+    meal_name: cleanText(data.meal_name, fallback.meal_name),
+    summary: cleanText(data.summary, fallback.summary),
     calories: Math.round(toNumber(data.calories, 0)),
     protein: Math.round(toNumber(data.protein, 0)),
     carbs: Math.round(toNumber(data.carbs, 0)),
     fat: Math.round(toNumber(data.fat, 0)),
-    foods: Array.isArray(data.foods) ? data.foods : [],
-    positives: Array.isArray(data.positives) ? data.positives : [],
-    cautions: Array.isArray(data.cautions) ? data.cautions : [],
-    advice: data.advice || fallback.advice,
+    foods: cleanList(data.foods),
+    positives: cleanList(data.positives),
+    cautions: cleanList(data.cautions),
+    advice: cleanText(data.advice, fallback.advice),
     nutrients: {
       fiber_g: toNumber(data?.nutrients?.fiber_g, 0),
       sugar_g: toNumber(data?.nutrients?.sugar_g, 0),
@@ -149,8 +165,8 @@ function normalizePhotoAnalysis(data) {
       bone_structure: "",
       muscle_insertions: "",
     },
-    aesthetic_ratios: {
-      shoulder_waist_ratio: "",
+    ratios: {
+      shoulder_to_waist_ratio: "",
       v_taper_score: 0,
       upper_lower_balance: "",
     },
@@ -164,25 +180,44 @@ function normalizePhotoAnalysis(data) {
       back: "",
       legs: "",
     },
+    genetics: {
+      genetic_potential: "",
+      muscle_gain_potential: "",
+      aesthetic_potential: "",
+    },
+    strength_zones: [],
+    weak_zones: [],
     strengths: [],
     weaknesses: [],
-    posture_analysis: "",
+    posture: "",
     six_month_projection: {
       weight_estimate: "",
       body_fat_estimate: "",
       physique: "",
-      focus_points: [],
+      changes: [],
     },
   };
 
   if (!data || typeof data !== "object") return fallback;
 
+  const rawRatios = data?.ratios || data?.aesthetic_ratios || {};
+  const rawGenetics = data?.genetics || {};
+  const rawProjection = data?.six_month_projection || {};
+
+  const strengths = cleanList(data.strengths);
+  const weaknesses = cleanList(data.weaknesses);
+  const strengthZones = cleanList(data.strength_zones);
+  const weakZones = cleanList(data.weak_zones);
+
   return {
-    body_fat: data.body_fat ?? fallback.body_fat,
-    body_type: data.body_type ?? fallback.body_type,
-    physique_level: data.physique_level ?? fallback.physique_level,
+    body_fat: cleanText(data.body_fat, fallback.body_fat),
+    body_type: cleanText(data.body_type, fallback.body_type),
+    physique_level: cleanText(data.physique_level, fallback.physique_level),
     aesthetic_score: Math.round(toNumber(data.aesthetic_score, 0)),
-    genetic_potential: data.genetic_potential ?? fallback.genetic_potential,
+    genetic_potential: cleanText(
+      data.genetic_potential,
+      fallback.genetic_potential
+    ),
     score: {
       global: Math.round(toNumber(data?.score?.global, 0)),
       musculature: Math.round(toNumber(data?.score?.musculature, 0)),
@@ -191,43 +226,159 @@ function normalizePhotoAnalysis(data) {
       symmetry: Math.round(toNumber(data?.score?.symmetry, 0)),
     },
     morphology: {
-      clavicle_width: data?.morphology?.clavicle_width ?? "",
-      waist_structure: data?.morphology?.waist_structure ?? "",
-      bone_structure: data?.morphology?.bone_structure ?? "",
-      muscle_insertions: data?.morphology?.muscle_insertions ?? "",
+      clavicle_width: cleanText(data?.morphology?.clavicle_width),
+      waist_structure: cleanText(data?.morphology?.waist_structure),
+      bone_structure: cleanText(data?.morphology?.bone_structure),
+      muscle_insertions: cleanText(data?.morphology?.muscle_insertions),
     },
-    aesthetic_ratios: {
-      shoulder_waist_ratio:
-        data?.aesthetic_ratios?.shoulder_waist_ratio ?? "",
-      v_taper_score: Math.round(
-        toNumber(data?.aesthetic_ratios?.v_taper_score, 0)
+    ratios: {
+      shoulder_to_waist_ratio: cleanText(
+        rawRatios?.shoulder_to_waist_ratio || rawRatios?.shoulder_waist_ratio
       ),
-      upper_lower_balance:
-        data?.aesthetic_ratios?.upper_lower_balance ?? "",
+      v_taper_score: Math.round(toNumber(rawRatios?.v_taper_score, 0)),
+      upper_lower_balance: cleanText(rawRatios?.upper_lower_balance),
     },
     muscle_analysis: {
-      shoulders: data?.muscle_analysis?.shoulders ?? "",
-      upper_chest: data?.muscle_analysis?.upper_chest ?? "",
-      chest: data?.muscle_analysis?.chest ?? "",
-      arms: data?.muscle_analysis?.arms ?? "",
-      abs: data?.muscle_analysis?.abs ?? "",
-      waist: data?.muscle_analysis?.waist ?? "",
-      back: data?.muscle_analysis?.back ?? "",
-      legs: data?.muscle_analysis?.legs ?? "",
+      shoulders: cleanText(data?.muscle_analysis?.shoulders),
+      upper_chest: cleanText(data?.muscle_analysis?.upper_chest),
+      chest: cleanText(data?.muscle_analysis?.chest),
+      arms: cleanText(data?.muscle_analysis?.arms),
+      abs: cleanText(data?.muscle_analysis?.abs),
+      waist: cleanText(data?.muscle_analysis?.waist),
+      back: cleanText(data?.muscle_analysis?.back),
+      legs: cleanText(data?.muscle_analysis?.legs),
     },
-    strengths: Array.isArray(data.strengths) ? data.strengths : [],
-    weaknesses: Array.isArray(data.weaknesses) ? data.weaknesses : [],
-    posture_analysis: data.posture_analysis ?? "",
+    genetics: {
+      genetic_potential: cleanText(
+        rawGenetics?.genetic_potential || data?.genetic_potential
+      ),
+      muscle_gain_potential: cleanText(rawGenetics?.muscle_gain_potential),
+      aesthetic_potential: cleanText(rawGenetics?.aesthetic_potential),
+    },
+    strength_zones: strengthZones.length > 0 ? strengthZones : strengths,
+    weak_zones: weakZones.length > 0 ? weakZones : weaknesses,
+    strengths,
+    weaknesses,
+    posture: cleanText(data?.posture || data?.posture_analysis),
     six_month_projection: {
-      weight_estimate: data?.six_month_projection?.weight_estimate ?? "",
-      body_fat_estimate:
-        data?.six_month_projection?.body_fat_estimate ?? "",
-      physique: data?.six_month_projection?.physique ?? "",
-      focus_points: Array.isArray(data?.six_month_projection?.focus_points)
-        ? data.six_month_projection.focus_points
-        : [],
+      weight_estimate: cleanText(rawProjection?.weight_estimate),
+      body_fat_estimate: cleanText(rawProjection?.body_fat_estimate),
+      physique: cleanText(rawProjection?.physique),
+      changes: cleanList(rawProjection?.changes || rawProjection?.focus_points),
     },
   };
+}
+
+function buildBodyFuturePrompt({
+  goal = "",
+  focusAreas = [],
+  intensity = "",
+  customPrompt = "",
+  langCode = "fr",
+}) {
+  const goalMap = {
+    "Plus musclé":
+      "make the physique more muscular with fuller muscle mass and stronger upper-body presence",
+    "More muscular":
+      "make the physique more muscular with fuller muscle mass and stronger upper-body presence",
+
+    "Plus sec":
+      "make the physique leaner with lower body fat, sharper lines, and more visible definition",
+    "Leaner":
+      "make the physique leaner with lower body fat, sharper lines, and more visible definition",
+
+    "Physique esthétique":
+      "create a more aesthetic physique with balanced proportions, stronger V-taper, and visually pleasing symmetry",
+    "Aesthetic physique":
+      "create a more aesthetic physique with balanced proportions, stronger V-taper, and visually pleasing symmetry",
+  };
+
+  const intensityMap = {
+    "Naturel":
+      "keep the result subtle, realistic, and naturally achievable",
+    "Natural":
+      "keep the result subtle, realistic, and naturally achievable",
+
+    "Athlétique":
+      "make the result clearly athletic, enhanced, and motivating while staying believable",
+    "Athletic":
+      "make the result clearly athletic, enhanced, and motivating while staying believable",
+
+    "Très avancé":
+      "push the physique further with a highly developed transformation, while keeping anatomy coherent",
+    "Advanced":
+      "push the physique further with a highly developed transformation, while keeping anatomy coherent",
+  };
+
+  const focusMap = {
+    "Épaules": "broader and rounder shoulders",
+    "Shoulders": "broader and rounder shoulders",
+
+    "Pectoraux": "fuller and stronger chest",
+    "Chest": "fuller and stronger chest",
+
+    "Bras": "bigger and more defined arms",
+    "Arms": "bigger and more defined arms",
+
+    "Dos": "wider and thicker back",
+    "Back": "wider and thicker back",
+
+    "Abdos": "more visible abs and tighter waistline",
+    "Abs": "more visible abs and tighter waistline",
+
+    "Jambes": "stronger and more developed legs",
+    "Legs": "stronger and more developed legs",
+  };
+
+  const goalInstruction =
+    goalMap[goal] ||
+    "improve the physique in a realistic and visually appealing way";
+
+  const intensityInstruction =
+    intensityMap[intensity] ||
+    "keep the transformation realistic and visually coherent";
+
+  const focusInstructions = Array.isArray(focusAreas)
+    ? focusAreas.map((area) => focusMap[area]).filter(Boolean)
+    : [];
+
+  const focusBlock =
+    focusInstructions.length > 0
+      ? `Prioritize these visual upgrades: ${focusInstructions.join(", ")}.`
+      : "Keep the transformation balanced across the whole physique.";
+
+  const customBlock =
+    cleanText(customPrompt).length > 0
+      ? `Additional user preference: ${cleanText(customPrompt)}.`
+      : "";
+
+  const langBlock =
+    langCode === "fr"
+      ? "The output must feel premium, realistic, motivating, and suitable for a fitness transformation app."
+      : "The output must feel premium, realistic, motivating, and suitable for a fitness transformation app.";
+
+  return `
+Transform the physique in this photo into a believable future-body projection.
+
+Main objective: ${goalInstruction}.
+Intensity: ${intensityInstruction}.
+${focusBlock}
+${customBlock}
+
+Important rules:
+- Keep the same person identity.
+- Preserve the same pose and general framing.
+- Keep the image photorealistic, not illustrated.
+- Maintain believable anatomy.
+- Do not distort the face.
+- Do not make the result cartoonish or fake.
+- Keep skin tones natural.
+- Keep the background coherent.
+- The result must look like a plausible future version of the same person.
+- Improve the body visually without changing the person into someone else.
+
+${langBlock}
+  `.trim();
 }
 
 /* =========================
@@ -313,7 +464,7 @@ app.post("/ai/photo-analysis", async (req, res) => {
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      max_tokens: 1200,
+      max_tokens: 1400,
       temperature: 0.2,
       messages: [
         {
@@ -346,8 +497,8 @@ Structure attendue :
     "bone_structure": "",
     "muscle_insertions": ""
   },
-  "aesthetic_ratios": {
-    "shoulder_waist_ratio": "",
+  "ratios": {
+    "shoulder_to_waist_ratio": "",
     "v_taper_score": 0,
     "upper_lower_balance": ""
   },
@@ -361,14 +512,21 @@ Structure attendue :
     "back": "",
     "legs": ""
   },
+  "genetics": {
+    "genetic_potential": "",
+    "muscle_gain_potential": "",
+    "aesthetic_potential": ""
+  },
+  "strength_zones": [],
+  "weak_zones": [],
   "strengths": [],
   "weaknesses": [],
-  "posture_analysis": "",
+  "posture": "",
   "six_month_projection": {
     "weight_estimate": "",
     "body_fat_estimate": "",
     "physique": "",
-    "focus_points": []
+    "changes": []
   }
 }
 
@@ -378,6 +536,8 @@ Règles :
 - pas d'exagération
 - pas de jugement insultant
 - analyser uniquement ce qui est visuellement plausible
+- si une donnée n'est pas fiable visuellement, laisse une chaîne vide
+- conserve des noms de champs EXACTEMENT identiques à la structure demandée
 `,
         },
         {
@@ -407,38 +567,82 @@ Règles :
       console.error("photo-analysis invalid json:", raw);
       return res.status(500).json({
         error: "photo analysis json invalid",
+        raw,
       });
     }
 
-    res.json(normalizePhotoAnalysis(parsed));
+    const normalized = normalizePhotoAnalysis(parsed);
+    return res.json(normalized);
   } catch (e) {
     console.error("photo-analysis error", e);
-    res.status(500).json({ error: "photo-analysis error" });
+    res.status(500).json({
+      error: "photo-analysis error",
+      details: e?.message || "unknown photo-analysis error",
+    });
   }
 });
 
 /* =========================
-   TRANSFORMATION 6 MOIS
+   TRANSFORMATION 6 MOIS / BODYFUTURE
 ========================= */
 
 app.post("/ai/transform", async (req, res) => {
   try {
-    const { imageBase64 } = req.body;
+    const {
+      imageBase64,
+      langCode = "fr",
+      goal = "",
+      focusAreas = [],
+      intensity = "",
+      customPrompt = "",
+    } = req.body;
 
     if (!imageBase64) {
       return res.status(400).json({ error: "missing imageBase64" });
     }
 
-    // Version mock propre pour éviter les erreurs de génération serveur
-    // tant que tu ne branches pas une vraie pipeline d'édition.
-    // On renvoie l'image d'origine pour garder l'app fonctionnelle.
-    res.json({
-      transformedImage: imageBase64,
-      note: "mock_transform_same_image",
+    const prompt = buildBodyFuturePrompt({
+      goal,
+      focusAreas,
+      intensity,
+      customPrompt,
+      langCode,
+    });
+
+    const imageBuffer = Buffer.from(imageBase64, "base64");
+
+    const result = await openai.images.edit({
+      model: "gpt-image-1",
+      image: imageBuffer,
+      prompt,
+      size: "1024x1536",
+    });
+
+    const transformedImage = result?.data?.[0]?.b64_json;
+
+    if (!transformedImage) {
+      return res.status(500).json({
+        error: "transform error",
+        details: "No transformed image returned",
+      });
+    }
+
+    return res.json({
+      transformedImage,
+      meta: {
+        goal,
+        focusAreas: Array.isArray(focusAreas) ? focusAreas : [],
+        intensity,
+        customPrompt,
+      },
+      promptUsed: prompt,
     });
   } catch (e) {
     console.error("transform error", e);
-    res.status(500).json({ error: "transform error" });
+    return res.status(500).json({
+      error: "transform error",
+      details: e?.message || "unknown transform error",
+    });
   }
 });
 
@@ -641,10 +845,10 @@ Rules:
 
     const normalized = normalizeMealScan(parsed, langCode);
 
-    res.json(normalized);
+    return res.json(normalized);
   } catch (e) {
     console.error("meal scan error", e);
-    res.status(500).json({
+    return res.status(500).json({
       error: "meal scan error",
       details: e?.message || "Erreur scan repas IA",
     });
