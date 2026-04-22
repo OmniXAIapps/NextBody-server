@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
+const admin = require("firebase-admin");
 require("dotenv").config();
 
 const app = express();
@@ -12,7 +13,11 @@ const PORT = process.env.PORT || 3000;
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
+const db = admin.firestore();
 const memory = {};
 
 /* =========================
@@ -380,7 +385,94 @@ Important rules:
 ${langBlock}
   `.trim();
 }
+async function sendCoachReplyPush({ userId, reply, langCode = "fr" }) {
+  try {
+    if (!userId || userId === "default") return;
 
+    const userSnap = await db.collection("users").doc(userId).get();
+    if (!userSnap.exists) return;
+
+    const userData = userSnap.data() || {};
+    const fcmToken = userData.fcmToken;
+
+    if (!fcmToken) {
+      console.log("No fcmToken for user:", userId);
+      return;
+    }
+
+    const titleMap = {
+      fr: "Coach IA",
+      en: "AI Coach",
+      es: "Coach IA",
+      it: "Coach IA",
+      pt: "Coach IA",
+      nl: "AI-coach",
+      de: "KI-Coach",
+      ar: "المدرب الذكي",
+    };
+
+    const bodyMap = {
+      fr: "Le coach a répondu à ton message.",
+      en: "The coach replied to your message.",
+      es: "El coach respondió a tu mensaje.",
+      it: "Il coach ha risposto al tuo messaggio.",
+      pt: "O coach respondeu à tua mensagem.",
+      nl: "De coach heeft op je bericht gereageerd.",
+      de: "Der Coach hat auf deine Nachricht geantwortet.",
+      ar: "قام المدرب بالرد على رسالتك.",
+    };
+
+    const finalLang = titleMap[langCode] ? langCode : "fr";
+
+    await admin.messaging().send({
+      token: fcmToken,
+      notification: {
+        title: titleMap[finalLang],
+        body: bodyMap[finalLang],
+      },
+      data: {
+        type: "coach",
+        route: "coach",
+        accentHex: "#FF3B30",
+        title_fr: titleMap.fr,
+        title_en: titleMap.en,
+        title_es: titleMap.es,
+        title_it: titleMap.it,
+        title_pt: titleMap.pt,
+        title_nl: titleMap.nl,
+        title_de: titleMap.de,
+        title_ar: titleMap.ar,
+        body_fr: bodyMap.fr,
+        body_en: bodyMap.en,
+        body_es: bodyMap.es,
+        body_it: bodyMap.it,
+        body_pt: bodyMap.pt,
+        body_nl: bodyMap.nl,
+        body_de: bodyMap.de,
+        body_ar: bodyMap.ar,
+        coachReply: reply || "",
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "nextbody_main_channel",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+          },
+        },
+      },
+    });
+
+    console.log("Coach push sent to:", userId);
+  } catch (e) {
+    console.error("sendCoachReplyPush error", e);
+  }
+}
 /* =========================
    ROOT
 ========================= */
@@ -399,7 +491,7 @@ app.get("/ping", (req, res) => {
 
 app.post("/ai/coach", async (req, res) => {
   try {
-    const { message, profile, userId } = req.body;
+    const { message, profile, userId, langCode } = req.body;
 
     if (!message) {
       return res.status(400).json({ error: "Message manquant" });
@@ -408,46 +500,93 @@ app.post("/ai/coach", async (req, res) => {
     const uid = userId || "default";
     if (!memory[uid]) memory[uid] = [];
 
-    const langCode = profile?.langCode || "fr";
-    const isFr = langCode === "fr";
+    const normalizedLang = String(
+      langCode || profile?.langCode || "fr"
+    ).toLowerCase().trim();
+
+    const supportedLangs = ["fr", "en", "es", "it", "pt", "nl", "de", "ar"];
+    const finalLang = supportedLangs.includes(normalizedLang)
+      ? normalizedLang
+      : "fr";
+
+    const languageMap = {
+      fr: "FRANÇAIS",
+      en: "ENGLISH",
+      es: "SPANISH",
+      it: "ITALIAN",
+      pt: "PORTUGUESE",
+      nl: "DUTCH",
+      de: "GERMAN",
+      ar: "ARABIC",
+    };
+
+    const refusalMap = {
+      fr: "Je réponds uniquement aux questions liées au sport, au fitness, à la musculation, au cardio, à la nutrition sportive, à la récupération et à la progression physique.",
+      en: "I only answer questions related to sport, fitness, bodybuilding, cardio, sports nutrition, recovery, and physical progress.",
+      es: "Solo respondo preguntas relacionadas con el deporte, el fitness, la musculación, el cardio, la nutrición deportiva, la recuperación y el progreso físico.",
+      it: "Rispondo solo a domande relative a sport, fitness, muscolazione, cardio, nutrizione sportiva, recupero e progresso fisico.",
+      pt: "Respondo apenas a perguntas relacionadas com esporte, fitness, musculação, cardio, nutrição esportiva, recuperação e progresso físico.",
+      nl: "Ik beantwoord alleen vragen over sport, fitness, krachttraining, cardio, sportvoeding, herstel en fysieke vooruitgang.",
+      de: "Ich beantworte nur Fragen zu Sport, Fitness, Muskelaufbau, Cardio, Sporternährung, Regeneration und körperlichem Fortschritt.",
+      ar: "أجيب فقط عن الأسئلة المتعلقة بالرياضة واللياقة وبناء العضلات والكارديو والتغذية الرياضية والاستشفاء والتطور البدني.",
+    };
 
     const systemPrompt = `
-Tu es le coach fitness officiel de l'application NextBody.
-Réponds uniquement en ${isFr ? "FRANÇAIS" : "ANGLAIS"}.
-Sois utile, motivant, concret, clair.
-Évite le blabla inutile.
-Réponses courtes à moyennes.
+You are the official AI coach of the NextBody app.
 
-Profil utilisateur :
-- sexe : ${profile?.gender ?? "inconnu"}
-- age : ${profile?.age ?? "inconnu"}
-- taille : ${profile?.height_cm ?? "inconnu"} cm
-- poids : ${profile?.weight_kg ?? "inconnu"} kg
-- niveau : ${profile?.level ?? "inconnu"}
-- objectif : ${profile?.goal ?? "inconnu"}
-- lieu entraînement : ${profile?.place ?? "inconnu"}
-`;
+STRICT RULES:
+- Reply only in ${languageMap[finalLang]}.
+- You are ONLY allowed to answer questions related to:
+  sport, fitness, bodybuilding, workouts, cardio, training plans,
+  physical transformation, recovery, stretching, mobility,
+  sports nutrition, hydration, calories, macros, healthy eating for performance,
+  body composition, discipline, motivation for training.
+- If the user asks anything outside those topics, DO NOT answer the actual question.
+- Instead, politely refuse in ${languageMap[finalLang]} and redirect the user to ask a sport or nutrition question.
+- Never answer general culture, geography, politics, history, school knowledge, news, tech support, or unrelated real-time questions.
+- Do not say your data stops in 2023.
+- Do not mention model limitations unless necessary.
+- Be concise, useful, motivating, and concrete.
+- Short to medium answers only.
+
+REFUSAL SENTENCE TO USE FOR OFF-TOPIC REQUESTS:
+${refusalMap[finalLang]}
+
+User profile:
+- sexe: ${profile?.gender ?? "unknown"}
+- age: ${profile?.age ?? "unknown"}
+- taille: ${profile?.height_cm ?? "unknown"} cm
+- poids: ${profile?.weight_kg ?? "unknown"} kg
+- niveau: ${profile?.level ?? "unknown"}
+- objectif: ${profile?.goal ?? "unknown"}
+- lieu entraînement: ${profile?.place ?? "unknown"}
+`.trim();
 
     memory[uid].push({ role: "user", content: message });
     const history = memory[uid].slice(-10);
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.7,
-      max_tokens: 350,
+      temperature: 0.4,
+      max_tokens: 300,
       messages: [{ role: "system", content: systemPrompt }, ...history],
     });
 
     const reply = completion.choices?.[0]?.message?.content?.trim() || "";
-    memory[uid].push({ role: "assistant", content: reply });
+memory[uid].push({ role: "assistant", content: reply });
 
-    res.json({ reply });
+await sendCoachReplyPush({
+  userId: uid,
+  reply,
+  langCode: finalLang,
+});
+
+res.json({ reply });
   } catch (e) {
     console.error("coach error", e);
     res.status(500).json({ error: "coach error" });
   }
 });
-
 /* =========================
    ANALYSE PHOTO PHYSIQUE
 ========================= */
